@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Asistencia</title>
+    <style>
+        * { box-sizing: border-box; font-family: sans-serif; font-size: 13px; font-weight: bold; }
+        body { margin: 0; background: #f4f6f9; padding: 4px; }
+        .card { background: white; padding: 8px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        input, select, button { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 4px; background: #fff; }
+        .flex { display: flex; gap: 4px; } .flex > * { flex: 1; }
+        .tabs { display: flex; background: #eee; border-radius: 4px; padding: 2px; margin-bottom: 8px; }
+        .tab-btn { flex: 1; padding: 5px; border: none; background: transparent; cursor: pointer; }
+        .tab-btn.active { background: blue; color: white; border-radius: 3px; }
+        .hoja { display: none; } .hoja.active { display: block; }
+        table { width: 100%; border-collapse: collapse; margin-top: 4px; background: #fff; }
+        th, td { padding: 5px; border: 1px solid #ddd; text-align: left; }
+        th { background: #f8f9fa; }
+        .badge { background: #eee; padding: 2px 4px; margin: 2px; border-radius: 3px; display: inline-block; }
+        .badge button { width: auto; padding: 0 2px; background: none; border: none; color: red; }
+        .conf-box { background: #f8f9fa; padding: 6px; border: 1px solid #ddd; margin-bottom: 6px; border-radius: 4px; }
+        @media print { .tabs, form, button, .no-p, input, select { display: none !important; } .hoja { display: block !important; } .hoja:not(.active) { display: none !important; } th { background: #e8f0fe !important; } }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="tabs">
+        <button id="btn4" onclick="tab(4)" class="tab-btn" style="max-width:40px;">⚙️</button>
+        <button id="btn1" onclick="tab(1)" class="tab-btn active">✍️ Registro</button>
+        <button id="btn2" onclick="tab(2)" class="tab-btn">📋 Mes / Quincena</button>
+        <button id="btn3" onclick="tab(3)" class="tab-btn">🔍 Día</button>
+    </div>
+
+    <div id="hoja4" class="hoja">
+        <div class="conf-box"><b>Empleados</b><div class="flex"><input type="text" id="in_p"><button onclick="add('p')" style="width:20%; background:blue; color:white;">+</button></div><div id="box_p"></div></div>
+        <div class="conf-box"><b>Lotes</b><div class="flex"><input type="text" id="in_l"><button onclick="add('l')" style="width:20%; background:blue; color:white;">+</button></div><div id="box_l"></div></div>
+        <div class="conf-box"><b>Tareas</b><div class="flex"><input type="text" id="in_t"><button onclick="add('t')" style="width:20%; background:blue; color:white;">+</button></div><div id="box_t"></div></div>
+        <button onclick="if(confirm('¿Borrar todo?')){localStorage.clear();location.reload();}" style="color:red; border:1px solid red; font-size:11px;">⚠️ Limpiar App</button>
+    </div>
+
+    <div id="hoja1" class="hoja active">
+        <form onsubmit="guardar(event)">
+            <input type="date" id="fecha" required>
+            <select id="empleado" required></select>
+            <div class="flex"><input type="time" id="entrada" value="08:00" required><input type="time" id="salida" value="12:00" required></div>
+            <select id="lote" required></select>
+            <div class="flex"><select id="tarea1" required></select><select id="tarea2"></select></div>
+            <p style="color:#666; font-size:11px; margin:2px 0 6px 2px; font-weight:normal;">ℹ️ Descuento de 1h de almuerzo si el turno supera 1 hora.</p>
+            <button type="submit" style="background:green; color:white;">💾 Guardar</button>
+        </form>
+    </div>
+
+    <div id="hoja2" class="hoja">
+        <div class="flex" style="margin-bottom: 4px;">
+            <input type="month" id="mesFiltro" onchange="calcular()">
+            <select id="periodoFiltro" onchange="calcular()">
+                <option value="todo">Mes Completo</option>
+                <option value="q1">1ª Quincena (1-15)</option>
+                <option value="q2">2ª Quincena (16+)</option>
+            </select>
+            <button onclick="window.print()" style="width:25%; background:#a020f0; color:white;">📄 PDF</button>
+        </div>
+        <div style="overflow-x:auto;"><table><tr style="background:#e8f0fe;"><th>Emp</th><th>Asi</th><th>Fal</th><th>Hrs</th><th>Pago</th></tr><tbody id="tablaResumen"></tbody></table></div>
+    </div>
+
+    <div id="hoja3" class="hoja">
+        <div class="flex"><input type="date" id="diaFiltro" onchange="calcular()"><select id="filtroEmp" onchange="calcular()"></select><button onclick="window.print()" style="width:25%; background:#a020f0; color:white;">📄 PDF</button></div>
+        <button onclick="document.getElementById('diaFiltro').value=''; calcular();" style="background:#6c757d; color:white; padding:3px; font-size:11px;" class="no-p">📅 Ver Todo</button>
+        <div style="overflow-x:auto;"><table><tr style="background:#fdf5e6;"><th>Fec</th><th>Emp</th><th>Hrs</th><th>$$</th><th>Tarea/Lote</th><th class="no-p">×</th></tr><tbody id="tablaDiario"></tbody></table></div>
+    </div>
+</div>
+
+<script>
+const I = window.location.pathname.split('/').pop() || 'def';
+let d = { 
+    p: JSON.parse(localStorage.getItem('p_'+I)) || ["Juan Pérez"], 
+    l: JSON.parse(localStorage.getItem('l_'+I)) || ["Lote 1"], 
+    t: JSON.parse(localStorage.getItem('t_'+I)) || ["Poda"], 
+    j: JSON.parse(localStorage.getItem('j_'+I)) || [] 
+};
+const sem = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
+
+document.addEventListener("DOMContentLoaded", () => {
+    const hoy = new Date(), f = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+    document.getElementById('fecha').value = document.getElementById('diaFiltro').value = f;
+    document.getElementById('mesFiltro').value = f.substring(0, 7); 
+    actualizarListas();
+});
+
+function m() { 
+    Object.keys(d).forEach(k => localStorage.setItem(k+'_'+I, JSON.stringify(d[k]))); 
+}
+
+function tab(n) { 
+    for(let i=1; i<=4; i++) { 
+        document.getElementById(`hoja${i}`).classList.toggle('active', i===n); 
+        document.getElementById(`btn${i}`).classList.toggle('active', i===n); 
+    } 
+}
+
+function add(k) { 
+    let inp = document.getElementById('in_'+k), v = inp.value.trim(); 
+    if (v && !d[k].includes(v)) { 
+        d[k].push(v); 
+        inp.value = ""; 
+        m(); 
+        actualizarListas(); 
+    } 
+}
+
+function del(k, i) { 
+    if(confirm('¿Borrar?')) { 
+        d[k].splice(i, 1); 
+        m(); 
+        actualizarListas(); 
+    } 
+}
+
+function eliminarRegistro(id) {
+    if(confirm('¿Borrar este registro diario?')) {
+        d.j = d.j.filter(r => r.id !== id);
+        m();
+        calcular();
+    }
+}
+
+function actualizarListas() {
+    let se = '<option value="">-- Empleado --</option>', fe = '<option value="ALL">-- Todos --</option>', sl = '<option value="">-- Lote --</option>', t1 = '<option value="">-- Tarea 1 --</option>', t2 = '<option value="">-- Tarea 2 --</option>';
+    d.p.forEach(t => se += `<option value="${t}">${t}</option>`); fe += se.replace('-- Empleado --', '-- Todos --');
+    d.l.forEach(l => sl += `<option value="${l}">${l}</option>`);
+    d.t.forEach(t => { t1 += `<option value="${t}">${t}</option>`; t2 += `<option value="${t}">${t}</option>`; });
+    
+    document.getElementById('empleado').innerHTML = se; 
+    document.getElementById('filtroEmp').innerHTML = fe; 
+    document.getElementById('lote').innerHTML = sl; 
+    document.getElementById('tarea1').innerHTML = t1; 
+    document.getElementById('tarea2').innerHTML = t2;
+    
+    ['p','l','t'].forEach(k => document.getElementById('box_'+k).innerHTML = d[k].map((v, i) => `<span class="badge">${v}<button onclick="del('${k}',${i})">×</button></span>`).join(''));
+    calcular();
+}
+
+function guardar(e) {
+    e.preventDefault(); 
+    const [hE, mE] = document.getElementById('entrada').value.split(':').map(Number), [hS, mS] = document.getElementById('salida').value.split(':').map(Number);
+    let hrs = (hS * 60 + mS - (hE * 60 + mE)) / 60; 
+    if (hrs <= 0) return alert("Error: La hora de salida debe ser mayor a la de entrada");
+    if (hrs > 1) hrs -= 1; 
+    
+    const ta1 = document.getElementById('tarea1').value, ta2 = document.getElementById('tarea2').value;
+    d.j.unshift({ 
+        id: Date.now(),
+        fecha: document.getElementById('fecha').value, 
+        nombre: document.getElementById('empleado').value, 
+        horas: hrs.toFixed(2), 
+        pago: (hrs * 2.50).toFixed(2), 
+        tarea: ta2 ? `${ta1}, ${ta2}` : ta1, 
+        lote: document.getElementById('lote').value 
+    });
+    
+    document.getElementById('empleado').value = document.getElementById('tarea1').value = document.getElementById('tarea2').value = document.getElementById('lote').value = "";
+    m(); 
+    actualizarListas();
+}
+
+function calcular() {
+    const mes = document.getElementById('mesFiltro').value, periodo = document.getElementById('periodoFiltro').value, tM = document.getElementById('tablaResumen'), df = document.getElementById('diaFiltro').value, emp = document.getElementById('filtroEmp').value, tD = document.getElementById('tablaDiario'); 
+    tM.innerHTML = tD.innerHTML = "";
+    
+    if (mes) {
+        // Filtrar primero los registros que pertenecen al mes seleccionado
+        let regMes = d.j.filter(r => r.fecha.substring(0, 7) === mes);
+        
+        // Sub-filtrar por quincena si corresponde
+        if (periodo === 'q1') {
+            regMes = regMes.filter(r => parseInt(r.fecha.split('-')[2]) <= 15);
+        } else if (periodo === 'q2') {
+            regMes = regMes.filter(r => parseInt(r.fecha.split('-')[2]) >= 16);
+        }
+
+        // Obtener la lista de días únicos dentro de este rango que CONTIENEN registros reales de la empresa
+        const dF = Array.from(new Set(regMes.map(r => r.fecha))).sort();
+        
+        d.p.forEach(t => {
+            const f = regMes.filter(r => r.nombre === t), asis = new Set(f.map(r => r.fecha)), hrs = f.reduce((s, r) => s + parseFloat(r.horas), 0);
+            let opt = '', c = 0; 
+            dF.forEach(di => { 
+                if (!asis.has(di)) { 
+                    c++; 
+                    opt += `<option>${sem[new Date(di+'T00:00:00').getDay()]} ${di.split('-').reverse().slice(0, 2).join('-')}</option>`; 
+                } 
+            });
+            tM.innerHTML += `<tr><td><b>${t}</b></td><td>${asis.size}</td><td>${c > 0 ? `<select class="fal"><option value="">⚠️ ${c}</option>${opt}</select>` : 0}</td><td>${hrs.toFixed(2)}</td><td style="color:green;">$${(hrs * 2.50).toFixed(2)}</td></tr>`;
+        });
+    }
+    
+    d.j.forEach((r) => { 
+        if ((!df || r.fecha === df) && (emp === "ALL" || r.nombre === emp)) {
+            tD.innerHTML += `<tr><td>${r.fecha.split('-').reverse().slice(0, 2).join('-')}</td><td>${r.nombre}</td><td>${r.horas}</td><td>$${r.pago}</td><td><small>${r.tarea}<br><b>${r.lote || ''}</b></small></td><td class="no-p"><button onclick="eliminarRegistro(${r.id})" style="color:red; background:none; padding:0; border:none; cursor:pointer;">×</button></td></tr>`; 
+        }
+    });
+}
+</script>
+</body>
+</html>
+
+```
